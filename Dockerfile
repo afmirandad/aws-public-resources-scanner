@@ -8,9 +8,15 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Set work directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies and AWS CLI
 RUN apt-get update && apt-get install -y \
     gcc \
+    curl \
+    unzip \
+    && curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
+    && unzip awscliv2.zip \
+    && ./aws/install \
+    && rm -rf awscliv2.zip aws \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -26,5 +32,9 @@ COPY . .
 # Create logs directory
 RUN mkdir -p logs
 
-# Run the application
-CMD ["python", "main.py"]
+# Copy and make entrypoint script executable
+COPY railway-entrypoint.sh .
+RUN chmod +x railway-entrypoint.sh
+
+# Run the application using railway entrypoint
+CMD ["./railway-entrypoint.sh"]

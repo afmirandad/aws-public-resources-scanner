@@ -37,9 +37,37 @@ This project scans AWS resources that are publicly exposed to the internet, iden
 - Docker and Docker Compose
 - AWS credentials with read permissions
 
-### 1. Configure Credentials
+### 1. Configure AWS Credentials
 
-Copy the example file and configure your credentials:
+You have three options for authentication:
+
+#### **Option A: AWS SSO (Recommended)**
+
+```bash
+# Run the SSO setup script
+./setup_sso.sh
+```
+
+This will:
+- Configure AWS SSO interactively
+- Set up your profile
+- Update the `.env` file automatically
+
+#### **Option B: Manual SSO Setup**
+
+```bash
+# Configure SSO
+aws configure sso
+
+# Login to SSO
+aws sso login --profile your-profile-name
+
+# Update .env file
+cp .env.example .env
+# Edit .env and set: AWS_PROFILE=your-profile-name
+```
+
+#### **Option C: Direct Credentials**
 
 ```bash
 cp .env.example .env
@@ -48,18 +76,13 @@ cp .env.example .env
 Edit `.env` with your credentials:
 
 ```bash
-# AWS Credentials
-AWS_ACCESS_KEY_ID=your_access_key_here
-AWS_SECRET_ACCESS_KEY=your_secret_key_here
+# For permanent credentials
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
 AWS_DEFAULT_REGION=us-east-1
 
-# Logging configuration
-LOG_LEVEL=INFO
-LOG_FILE=logs/aws_public_resources.log
-
-# Services to scan
-SERVICES_TO_SCAN=ec2,rds,elb,s3
-MAX_WORKERS=10
+# For temporary credentials, also add:
+AWS_SESSION_TOKEN=...
 ```
 
 ### 2. Run with Docker

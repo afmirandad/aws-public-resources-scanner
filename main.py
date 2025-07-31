@@ -32,14 +32,33 @@ class AWSPublicResourceScanner:
         self.session = self._initialize_session()
     
     def _initialize_session(self):
-        """Initialize AWS session with credentials from environment"""
+        """Initialize AWS session with credentials from environment or SSO"""
         try:
-            # Try to create session with environment variables
-            session = boto3.Session(
-                aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-                aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-                region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
-            )
+            # Option 1: Try AWS Profile (includes SSO)
+            aws_profile = os.getenv('AWS_PROFILE')
+            if aws_profile:
+                self.logger.info(f"🔑 Using AWS Profile: {aws_profile}")
+                session = boto3.Session(profile_name=aws_profile)
+            else:
+                # Option 2: Try environment variables
+                access_key = os.getenv('AWS_ACCESS_KEY_ID')
+                secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+                session_token = os.getenv('AWS_SESSION_TOKEN')
+                
+                if access_key and secret_key:
+                    self.logger.info("🔑 Using environment variables credentials")
+                    session = boto3.Session(
+                        aws_access_key_id=access_key,
+                        aws_secret_access_key=secret_key,
+                        aws_session_token=session_token,
+                        region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
+                    )
+                else:
+                    # Option 3: Try default credential chain (includes SSO)
+                    self.logger.info("🔑 Using default AWS credential chain")
+                    session = boto3.Session(
+                        region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
+                    )
             
             # Test credentials
             sts = session.client('sts')
@@ -49,6 +68,7 @@ class AWSPublicResourceScanner:
             
         except (NoCredentialsError, PartialCredentialsError) as e:
             self.logger.error(f"❌ Credentials error: {str(e)}")
+            self.logger.error("💡 Try: aws sso login --profile your-profile")
             raise
         except Exception as e:
             self.logger.error(f"❌ Error initializing AWS session: {str(e)}")
