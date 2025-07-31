@@ -75,8 +75,16 @@ class AWSPublicResourceScanner:
             raise
     
     def get_all_regions(self):
-        """Get all available AWS regions"""
+        """Get all available AWS regions or use specified regions"""
         try:
+            # Check if specific regions are configured
+            regions_env = os.getenv('REGIONS_TO_SCAN', '')
+            if regions_env:
+                regions = [r.strip() for r in regions_env.split(',')]
+                self.logger.info(f"🌍 Using configured regions: {regions}")
+                return regions
+            
+            # Otherwise, get all available regions
             ec2 = self.session.client('ec2')
             regions = ec2.describe_regions()
             return [region['RegionName'] for region in regions['Regions']]
@@ -422,11 +430,38 @@ class AWSPublicResourceScanner:
 
 
 if __name__ == "__main__":
-    try:
-        scanner = AWSPublicResourceScanner()
-        scanner.run_scan()
-    except KeyboardInterrupt:
+    import signal
+    import sys
+    
+    def signal_handler(sig, frame):
         print("\n⏹️ Scan interrupted by user")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        while True:
+            try:
+                print(f"\n🚀 Starting AWS Public Resources Scanner - {time.strftime('%Y-%m-%d %H:%M:%S')}")
+                scanner = AWSPublicResourceScanner()
+                scanner.run_scan()
+                
+                # Wait 12 hours (43200 seconds) before next scan
+                print(f"\n💤 Scan completed. Sleeping for 12 hours until next scan...")
+                print(f"⏰ Next scan will start at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time() + 43200))}")
+                time.sleep(43200)  # 12 hours = 12 * 60 * 60 = 43200 seconds
+                
+            except KeyboardInterrupt:
+                print("\n⏹️ Scan interrupted by user")
+                break
+            except Exception as e:
+                print(f"\n❌ Critical error: {str(e)}")
+                print("⏳ Waiting 10 minutes before retrying...")
+                time.sleep(600)  # Wait 10 minutes before retry
+                
+    except KeyboardInterrupt:
+        print("\n⏹️ Application stopped by user")
     except Exception as e:
-        print(f"\n❌ Critical error: {str(e)}")
-        exit(1)
+        print(f"\n❌ Fatal error: {str(e)}")
+        sys.exit(1)
