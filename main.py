@@ -225,46 +225,48 @@ class AWSPublicResourceScanner:
             self.logger.info(f"🔍 Scanning Classic Load Balancers in {region}")
             
             response = elb.describe_load_balancers()
-            for lb in response['LoadBalancers']:
-                self.total_resources += 1
-                
-                if lb.get('Scheme') == 'internet-facing':
-                    listeners = [f"{l['Protocol']}:{l['LoadBalancerPort']}" for l in lb['ListenerDescriptions']]
+            if 'LoadBalancerDescriptions' in response:
+                for lb in response['LoadBalancerDescriptions']:
+                    self.total_resources += 1
                     
-                    self.public_resources.append({
-                        'Service': 'ELB',
-                        'Region': region,
-                        'ResourceId': lb['LoadBalancerName'],
-                        'Type': 'Classic Load Balancer',
-                        'PublicIP': 'N/A',
-                        'PublicDNS': lb['DNSName'],
-                        'OpenPorts': ', '.join(listeners),
-                        'State': 'active'
-                    })
-                    
-                    self.logger.warning(f"🌐 Public Load Balancer: {lb['LoadBalancerName']}")
+                    if lb.get('Scheme') == 'internet-facing':
+                        listeners = [f"{l['Protocol']}:{l['LoadBalancerPort']}" for l in lb['ListenerDescriptions']]
+                        
+                        self.public_resources.append({
+                            'Service': 'ELB',
+                            'Region': region,
+                            'ResourceId': lb['LoadBalancerName'],
+                            'Type': 'Classic Load Balancer',
+                            'PublicIP': 'N/A',
+                            'PublicDNS': lb['DNSName'],
+                            'OpenPorts': ', '.join(listeners),
+                            'State': 'active'
+                        })
+                        
+                        self.logger.warning(f"🌐 Public Load Balancer: {lb['LoadBalancerName']}")
             
             # Application/Network Load Balancers
             elbv2 = self.session.client('elbv2', region_name=region)
             self.logger.info(f"🔍 Scanning ALB/NLB in {region}")
             
             response = elbv2.describe_load_balancers()
-            for lb in response['LoadBalancers']:
-                self.total_resources += 1
-                
-                if lb.get('Scheme') == 'internet-facing':
-                    self.public_resources.append({
-                        'Service': 'ELBv2',
-                        'Region': region,
-                        'ResourceId': lb['LoadBalancerName'],
-                        'Type': lb['Type'].upper(),
-                        'PublicIP': 'N/A',
-                        'PublicDNS': lb['DNSName'],
-                        'OpenPorts': 'HTTP/HTTPS',
-                        'State': lb['State']['Code']
-                    })
+            if 'LoadBalancers' in response:
+                for lb in response['LoadBalancers']:
+                    self.total_resources += 1
                     
-                    self.logger.warning(f"🌐 Public {lb['Type'].upper()}: {lb['LoadBalancerName']}")
+                    if lb.get('Scheme') == 'internet-facing':
+                        self.public_resources.append({
+                            'Service': 'ELBv2',
+                            'Region': region,
+                            'ResourceId': lb['LoadBalancerName'],
+                            'Type': lb['Type'].upper(),
+                            'PublicIP': 'N/A',
+                            'PublicDNS': lb['DNSName'],
+                            'OpenPorts': 'HTTP/HTTPS',
+                            'State': lb['State']['Code']
+                        })
+                        
+                        self.logger.warning(f"🌐 Public {lb['Type'].upper()}: {lb['LoadBalancerName']}")
             
         except ClientError as e:
             error_code = e.response['Error']['Code']
