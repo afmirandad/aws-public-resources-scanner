@@ -5,14 +5,14 @@
 
 set -e
 
-# Colores para output
+# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Función para mostrar mensajes
+# Function to display messages
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -29,156 +29,156 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Verificar si Docker está disponible
+# Check if Docker is available
 check_docker() {
     if ! command -v docker &> /dev/null; then
-        log_error "Docker no está instalado o no está en el PATH"
+        log_error "Docker is not installed or not in PATH"
         exit 1
     fi
     
     if ! docker info &> /dev/null; then
-        log_error "Docker no está funcionando. ¿Está el daemon de Docker iniciado?"
+        log_error "Docker is not running. Is the Docker daemon started?"
         exit 1
     fi
     
-    log_success "Docker está disponible"
+    log_success "Docker is available"
 }
 
-# Verificar si existe el archivo .env
+# Check if .env file exists
 check_env_file() {
     if [ ! -f ".env" ]; then
-        log_warning "Archivo .env no encontrado"
-        log_info "Creando .env desde .env.example..."
+        log_warning ".env file not found"
+        log_info "Creating .env from .env.example..."
         
         if [ -f ".env.example" ]; then
             cp .env.example .env
-            log_warning "Por favor, edita el archivo .env con tus credenciales de AWS antes de continuar"
-            log_info "Editando .env..."
+            log_warning "Please edit the .env file with your AWS credentials before continuing"
+            log_info "Editing .env..."
             ${EDITOR:-nano} .env
         else
-            log_error "Archivo .env.example no encontrado"
+            log_error ".env.example file not found"
             exit 1
         fi
     else
-        log_success "Archivo .env encontrado"
+        log_success ".env file found"
     fi
 }
 
-# Verificar credenciales en .env
+# Check credentials in .env
 check_credentials() {
     local has_key=$(grep -c "^AWS_ACCESS_KEY_ID=" .env 2>/dev/null || echo "0")
     local has_secret=$(grep -c "^AWS_SECRET_ACCESS_KEY=" .env 2>/dev/null || echo "0")
     
     if [ "$has_key" -eq 0 ] || [ "$has_secret" -eq 0 ]; then
-        log_error "Credenciales de AWS no configuradas en .env"
-        log_info "Asegúrate de configurar AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY"
+        log_error "AWS credentials not configured in .env"
+        log_info "Make sure to configure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
         exit 1
     fi
     
-    # Verificar que no estén vacías
+    # Check that they are not empty
     source .env
     if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
-        log_error "Las credenciales de AWS están vacías en .env"
+        log_error "AWS credentials are empty in .env"
         exit 1
     fi
     
-    log_success "Credenciales de AWS configuradas"
+    log_success "AWS credentials configured"
 }
 
-# Construir imagen Docker
+# Build Docker image
 build_image() {
-    log_info "Construyendo imagen Docker..."
+    log_info "Building Docker image..."
     docker build -t aws-public-scanner . || {
-        log_error "Error construyendo la imagen Docker"
+        log_error "Error building Docker image"
         exit 1
     }
-    log_success "Imagen Docker construida exitosamente"
+    log_success "Docker image built successfully"
 }
 
-# Crear directorio de logs
+# Create logs directory
 create_logs_dir() {
     if [ ! -d "logs" ]; then
         mkdir -p logs
-        log_info "Directorio logs creado"
+        log_info "Logs directory created"
     fi
 }
 
-# Ejecutar scanner
+# Run scanner
 run_scanner() {
-    log_info "Ejecutando scanner de recursos públicos de AWS..."
-    log_info "Los logs se mostrarán en tiempo real..."
+    log_info "Running AWS public resources scanner..."
+    log_info "Logs will be displayed in real time..."
     echo
     
     docker run --rm \
         --env-file .env \
         -v "$(pwd)/logs:/app/logs" \
         aws-public-scanner || {
-        log_error "Error ejecutando el scanner"
+        log_error "Error running scanner"
         exit 1
     }
     
     echo
-    log_success "Scanner completado"
+    log_success "Scanner completed"
 }
 
-# Mostrar resultados
+# Show results
 show_results() {
     local latest_report=$(ls -t logs/public_resources_report_*.json 2>/dev/null | head -n1)
     
     if [ -n "$latest_report" ]; then
-        log_info "Reporte más reciente: $latest_report"
+        log_info "Latest report: $latest_report"
         
-        # Extraer estadísticas básicas del JSON
+        # Extract basic statistics from JSON
         local total_resources=$(jq -r '.total_resources_scanned // "N/A"' "$latest_report" 2>/dev/null)
         local public_resources=$(jq -r '.public_resources_found // "N/A"' "$latest_report" 2>/dev/null)
         
         echo
-        echo "📊 RESUMEN DEL ESCANEO:"
-        echo "├─ Total de recursos escaneados: $total_resources"
-        echo "├─ Recursos públicos encontrados: $public_resources"
-        echo "└─ Reporte guardado en: $latest_report"
+        echo "📊 SCAN SUMMARY:"
+        echo "├─ Total resources scanned: $total_resources"
+        echo "├─ Public resources found: $public_resources"
+        echo "└─ Report saved to: $latest_report"
         echo
         
         if [ "$public_resources" != "0" ] && [ "$public_resources" != "N/A" ]; then
-            log_warning "⚠️  Se encontraron recursos públicos. Revisa el reporte para detalles."
+            log_warning "⚠️  Public resources found. Check the report for details."
         else
-            log_success "✅ ¡Excelente! No se encontraron recursos públicos."
+            log_success "✅ Excellent! No public resources found."
         fi
     else
-        log_warning "No se encontró ningún reporte de resultados"
+        log_warning "No result reports found"
     fi
 }
 
-# Función de ayuda
+# Help function
 show_help() {
     echo "AWS Public Resources Scanner"
     echo ""
-    echo "Uso: $0 [OPCIÓN]"
+    echo "Usage: $0 [OPTION]"
     echo ""
-    echo "Opciones:"
-    echo "  help, -h, --help     Mostrar esta ayuda"
-    echo "  build               Solo construir la imagen Docker"
-    echo "  run                 Solo ejecutar (asume que la imagen ya existe)"
-    echo "  setup               Solo verificar configuración"
-    echo "  logs                Mostrar logs del último escaneo"
+    echo "Options:"
+    echo "  help, -h, --help     Show this help"
+    echo "  build               Only build Docker image"
+    echo "  run                 Only run (assumes image already exists)"
+    echo "  setup               Only verify configuration"
+    echo "  logs                Show logs from last scan"
     echo ""
-    echo "Sin argumentos ejecuta el proceso completo: verificación + construcción + ejecución"
+    echo "Without arguments, runs the complete process: verification + build + execution"
 }
 
-# Mostrar logs
+# Show logs
 show_logs() {
     local latest_log=$(ls -t logs/*.log 2>/dev/null | head -n1)
     
     if [ -n "$latest_log" ]; then
-        log_info "Mostrando logs del archivo: $latest_log"
+        log_info "Showing logs from file: $latest_log"
         echo
         tail -50 "$latest_log"
     else
-        log_warning "No se encontraron archivos de log"
+        log_warning "No log files found"
     fi
 }
 
-# Función principal
+# Main function
 main() {
     echo "🔍 AWS Public Resources Scanner"
     echo "================================="
@@ -192,7 +192,7 @@ main() {
         "build")
             check_docker
             build_image
-            log_success "Construcción completada"
+            log_success "Build completed"
             exit 0
             ;;
         "run")
@@ -208,7 +208,7 @@ main() {
             check_docker
             check_env_file
             check_credentials
-            log_success "Configuración verificada correctamente"
+            log_success "Configuration verified successfully"
             exit 0
             ;;
         "logs")
@@ -216,7 +216,7 @@ main() {
             exit 0
             ;;
         "")
-            # Proceso completo
+            # Complete process
             check_docker
             check_env_file
             check_credentials
@@ -226,12 +226,12 @@ main() {
             show_results
             ;;
         *)
-            log_error "Opción desconocida: $1"
+            log_error "Unknown option: $1"
             show_help
             exit 1
             ;;
     esac
 }
 
-# Ejecutar función principal
+# Execute main function
 main "$@"
