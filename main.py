@@ -22,7 +22,7 @@ class AWSPublicResourceScanner:
         # Configuration
         self.max_workers = int(os.getenv('MAX_WORKERS', 10))
         self.timeout = int(os.getenv('TIMEOUT_SECONDS', 30))
-        self.services_to_scan = os.getenv('SERVICES_TO_SCAN', 'ec2,rds,elb,s3').split(',')
+        self.services_to_scan = os.getenv('SERVICES_TO_SCAN', 'ec2,rds,elb,s3,cloudfront,lambda,apigateway,elasticsearch,ecs,eks,redshift').split(',')
         
         # Results storage
         self.public_resources = []
@@ -134,7 +134,9 @@ class AWSPublicResourceScanner:
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code in ['UnauthorizedOperation', 'AccessDenied']:
-                self.logger.warning(f"⚠️ No permissions for EC2 in {region}: {str(e)}")
+                self.logger.warning(f"⚠️ No permissions for EC2 in {region}")
+                self.logger.info(f"   Required permissions: ec2:DescribeInstances, ec2:DescribeSecurityGroups")
+                self.logger.info(f"   Error details: {str(e)}")
             else:
                 self.logger.error(f"❌ Error scanning EC2 in {region}: {str(e)}")
         except Exception as e:
@@ -207,7 +209,9 @@ class AWSPublicResourceScanner:
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code in ['UnauthorizedOperation', 'AccessDenied']:
-                self.logger.warning(f"⚠️ No permissions for RDS in {region}: {str(e)}")
+                self.logger.warning(f"⚠️ No permissions for RDS in {region}")
+                self.logger.info(f"   Required permissions: rds:DescribeDBInstances")
+                self.logger.info(f"   Error details: {str(e)}")
             else:
                 self.logger.error(f"❌ Error scanning RDS in {region}: {str(e)}")
         except Exception as e:
@@ -265,7 +269,9 @@ class AWSPublicResourceScanner:
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code in ['UnauthorizedOperation', 'AccessDenied']:
-                self.logger.warning(f"⚠️ No permissions for ELB in {region}: {str(e)}")
+                self.logger.warning(f"⚠️ No permissions for ELB in {region}")
+                self.logger.info(f"   Required permissions: elasticloadbalancing:DescribeLoadBalancers")
+                self.logger.info(f"   Error details: {str(e)}")
             else:
                 self.logger.error(f"❌ Error scanning ELB in {region}: {str(e)}")
         except Exception as e:
@@ -328,11 +334,208 @@ class AWSPublicResourceScanner:
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code in ['UnauthorizedOperation', 'AccessDenied']:
-                self.logger.warning(f"⚠️ No permissions for S3: {str(e)}")
+                self.logger.warning(f"⚠️ No permissions for S3")
+                self.logger.info(f"   Required permissions: s3:ListAllMyBuckets, s3:GetBucketAcl, s3:GetBucketPolicy")
+                self.logger.info(f"   Error details: {str(e)}")
             else:
                 self.logger.error(f"❌ Error scanning S3: {str(e)}")
         except Exception as e:
             self.logger.error(f"❌ Unexpected error in S3: {str(e)}")
+    
+    def scan_cloudfront_distributions(self):
+        """Scan CloudFront distributions"""
+        try:
+            cloudfront = self.session.client('cloudfront')
+            self.logger.info("🔍 Scanning CloudFront distributions")
+            
+            paginator = cloudfront.get_paginator('list_distributions')
+            resources_found = 0
+            
+            for page in paginator.paginate():
+                if 'Items' in page['DistributionList']:
+                    for distribution in page['DistributionList']['Items']:
+                        resources_found += 1
+                        
+                        if distribution.get('Enabled', False):
+                            self.public_resources.append({
+                                'Service': 'CloudFront',
+                                'Region': 'global',
+                                'ResourceId': distribution['Id'],
+                                'Type': 'Distribution',
+                                'PublicIP': 'N/A',
+                                'PublicDNS': distribution['DomainName'],
+                                'OpenPorts': 'HTTP/HTTPS',
+                                'State': 'enabled' if distribution['Enabled'] else 'disabled'
+                            })
+                            
+                            self.logger.warning(f"🌐 CloudFront distribution: {distribution['Id']} ({distribution['DomainName']})")
+            
+            self.total_resources += resources_found
+            self.logger.info(f"✅ CloudFront: {resources_found} distributions scanned")
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code in ['UnauthorizedOperation', 'AccessDenied']:
+                self.logger.warning(f"⚠️ No permissions for CloudFront")
+                self.logger.info(f"   Required permissions: cloudfront:ListDistributions")
+                self.logger.info(f"   Error details: {str(e)}")
+            else:
+                self.logger.error(f"❌ Error scanning CloudFront: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"❌ Unexpected error in CloudFront: {str(e)}")
+    
+    def scan_lambda_functions(self, region):
+        """Scan Lambda functions with public URLs"""
+        try:
+            lambda_client = self.session.client('lambda', region_name=region)
+            self.logger.info(f"🔍 Scanning Lambda functions in {region}")
+            
+            paginator = lambda_client.get_paginator('list_functions')
+            resources_found = 0
+            
+            for page in paginator.paginate():
+                for function in page['Functions']:
+                    resources_found += 1
+                    
+                    try:
+                        # Check if function has a function URL
+                        url_config = lambda_client.get_function_url_config(FunctionName=function['FunctionName'])
+                        
+                        self.public_resources.append({
+                            'Service': 'Lambda',
+                            'Region': region,
+                            'ResourceId': function['FunctionName'],
+                            'Type': 'Function URL',
+                            'PublicIP': 'N/A',
+                            'PublicDNS': url_config['FunctionUrl'],
+                            'OpenPorts': 'HTTPS',
+                            'State': function['State']
+                        })
+                        
+                        self.logger.warning(f"🌐 Public Lambda function: {function['FunctionName']} ({url_config['FunctionUrl']})")
+                        
+                    except ClientError as url_error:
+                        if url_error.response['Error']['Code'] != 'ResourceNotFoundException':
+                            self.logger.debug(f"Error checking URL for {function['FunctionName']}: {str(url_error)}")
+            
+            self.total_resources += resources_found
+            self.logger.info(f"✅ Lambda {region}: {resources_found} functions scanned")
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code in ['UnauthorizedOperation', 'AccessDenied']:
+                self.logger.warning(f"⚠️ No permissions for Lambda in {region}")
+                self.logger.info(f"   Required permissions: lambda:ListFunctions, lambda:GetFunctionUrlConfig")
+                self.logger.info(f"   Error details: {str(e)}")
+            else:
+                self.logger.error(f"❌ Error scanning Lambda in {region}: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"❌ Unexpected error in Lambda {region}: {str(e)}")
+    
+    def scan_api_gateway(self, region):
+        """Scan API Gateway REST APIs"""
+        try:
+            apigateway = self.session.client('apigateway', region_name=region)
+            self.logger.info(f"🔍 Scanning API Gateway in {region}")
+            
+            paginator = apigateway.get_paginator('get_rest_apis')
+            resources_found = 0
+            
+            for page in paginator.paginate():
+                for api in page['items']:
+                    resources_found += 1
+                    
+                    # Get stages for the API
+                    try:
+                        stages = apigateway.get_stages(restApiId=api['id'])
+                        for stage in stages['item']:
+                            api_url = f"https://{api['id']}.execute-api.{region}.amazonaws.com/{stage['stageName']}"
+                            
+                            self.public_resources.append({
+                                'Service': 'API Gateway',
+                                'Region': region,
+                                'ResourceId': f"{api['name']}/{stage['stageName']}",
+                                'Type': 'REST API',
+                                'PublicIP': 'N/A',
+                                'PublicDNS': api_url,
+                                'OpenPorts': 'HTTPS',
+                                'State': 'active'
+                            })
+                            
+                            self.logger.warning(f"🌐 Public API Gateway: {api['name']}/{stage['stageName']} ({api_url})")
+                    
+                    except ClientError as stage_error:
+                        self.logger.debug(f"Error getting stages for API {api['id']}: {str(stage_error)}")
+            
+            self.total_resources += resources_found
+            self.logger.info(f"✅ API Gateway {region}: {resources_found} APIs scanned")
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code in ['UnauthorizedOperation', 'AccessDenied']:
+                self.logger.warning(f"⚠️ No permissions for API Gateway in {region}")
+                self.logger.info(f"   Required permissions: apigateway:GET")
+                self.logger.info(f"   Error details: {str(e)}")
+            else:
+                self.logger.error(f"❌ Error scanning API Gateway in {region}: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"❌ Unexpected error in API Gateway {region}: {str(e)}")
+    
+    def scan_elasticsearch(self, region):
+        """Scan Elasticsearch domains"""
+        try:
+            es = self.session.client('es', region_name=region)
+            self.logger.info(f"🔍 Scanning Elasticsearch domains in {region}")
+            
+            response = es.list_domain_names()
+            resources_found = 0
+            
+            for domain in response['DomainNames']:
+                domain_name = domain['DomainName']
+                resources_found += 1
+                
+                try:
+                    domain_config = es.describe_elasticsearch_domain(DomainName=domain_name)
+                    domain_info = domain_config['DomainStatus']
+                    
+                    # Check if domain has public endpoint
+                    if domain_info.get('Endpoint'):
+                        endpoint = domain_info['Endpoint']
+                        
+                        # Check access policy for public access
+                        access_policies = domain_info.get('AccessPolicies', '{}')
+                        is_public = '"Principal": "*"' in access_policies or '"Principal": {"AWS": "*"}' in access_policies
+                        
+                        if is_public:
+                            self.public_resources.append({
+                                'Service': 'Elasticsearch',
+                                'Region': region,
+                                'ResourceId': domain_name,
+                                'Type': 'Domain',
+                                'PublicIP': 'N/A',
+                                'PublicDNS': endpoint,
+                                'OpenPorts': 'HTTPS/443',
+                                'State': domain_info.get('Processing', False) and 'processing' or 'active'
+                            })
+                            
+                            self.logger.warning(f"🌐 Public Elasticsearch domain: {domain_name} ({endpoint})")
+                
+                except ClientError as domain_error:
+                    self.logger.debug(f"Error describing domain {domain_name}: {str(domain_error)}")
+            
+            self.total_resources += resources_found
+            self.logger.info(f"✅ Elasticsearch {region}: {resources_found} domains scanned")
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code in ['UnauthorizedOperation', 'AccessDenied']:
+                self.logger.warning(f"⚠️ No permissions for Elasticsearch in {region}")
+                self.logger.info(f"   Required permissions: es:ListDomainNames, es:DescribeElasticsearchDomain")
+                self.logger.info(f"   Error details: {str(e)}")
+            else:
+                self.logger.error(f"❌ Error scanning Elasticsearch in {region}: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"❌ Unexpected error in Elasticsearch {region}: {str(e)}")
     
     def scan_region(self, region):
         """Scan all services in a specific region"""
@@ -341,7 +544,10 @@ class AWSPublicResourceScanner:
         service_functions = {
             'ec2': self.scan_ec2_instances,
             'rds': self.scan_rds_instances,
-            'elb': self.scan_load_balancers
+            'elb': self.scan_load_balancers,
+            'lambda': self.scan_lambda_functions,
+            'apigateway': self.scan_api_gateway,
+            'elasticsearch': self.scan_elasticsearch
         }
         
         for service in self.services_to_scan:
@@ -364,6 +570,10 @@ class AWSPublicResourceScanner:
             # Scan S3 (global service)
             if 's3' in self.services_to_scan:
                 self.scan_s3_buckets()
+            
+            # Scan CloudFront (global service)
+            if 'cloudfront' in self.services_to_scan:
+                self.scan_cloudfront_distributions()
             
             # Scan regional services
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:

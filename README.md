@@ -4,12 +4,13 @@ This project scans AWS resources that are publicly exposed to the internet, iden
 
 ## 🚀 Features
 
-- **Multi-Service Scanning**: EC2, RDS, ELB/ALB/NLB, S3
-- **Multi-Region**: Automatically scans all AWS regions
-- **Advanced Logging**: Colorful console logs and detailed file logs
-- **Error Handling**: Robust control of authentication and permission errors
+- **Multi-Service Scanning**: EC2, RDS, ELB/ALB/NLB, S3, CloudFront, Lambda, API Gateway, Elasticsearch
+- **Multi-Region**: Automatically scans all AWS regions or specified regions
+- **Advanced Logging**: Colorful console logs and detailed file logs with permission details
+- **Error Handling**: Robust control of authentication and permission errors with detailed guidance
 - **Reports**: Formatted table output and JSON files
-- **Dockerized**: Easy deployment with Docker and Docker Compose
+- **Dockerized**: Easy deployment with Docker and Railway
+- **Scheduled Scanning**: Configurable intervals (default: 12 hours)
 
 ## 📋 Detected Resources
 
@@ -30,6 +31,22 @@ This project scans AWS resources that are publicly exposed to the internet, iden
 ### S3 Buckets
 - Buckets with public ACL
 - Buckets with policies allowing public access
+
+### CloudFront Distributions
+- Public content delivery networks
+- Domain names and status
+
+### Lambda Functions
+- Functions with public URLs
+- Function URL endpoints
+
+### API Gateway
+- Public REST APIs
+- API endpoints and stages
+
+### Elasticsearch Domains
+- Public Elasticsearch clusters
+- Domain endpoints with public access policies
 
 ## 🛠️ Installation and Usage
 
